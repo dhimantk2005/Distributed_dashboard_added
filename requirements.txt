@@ -1,0 +1,14 @@
+# requirements.txt
+# Core ML Frameworks
+torch==1.12.1
+tensorflow==2.15.0
+
+# Vision dataset/transform utilities
+torchvision==0.13.1
+
+# Critical Dependencies
+numpy==1.26.4
+Pillow==9.4.0
+
+# Optional NVIDIA/CUDA bindings
+nvidia-nccl-cu11==2.21.5

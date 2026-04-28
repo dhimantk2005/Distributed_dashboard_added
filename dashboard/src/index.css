@@ -1,0 +1,195 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+/* ─── Custom Design Tokens ────────────────────────────────────────── */
+
+@theme {
+  --color-surface-50: oklch(0.97 0.005 260);
+  --color-surface-100: oklch(0.93 0.008 260);
+  --color-surface-200: oklch(0.87 0.012 260);
+  --color-surface-300: oklch(0.78 0.015 260);
+  --color-surface-400: oklch(0.62 0.015 260);
+  --color-surface-500: oklch(0.50 0.015 260);
+  --color-surface-600: oklch(0.38 0.015 260);
+  --color-surface-700: oklch(0.28 0.018 260);
+  --color-surface-800: oklch(0.22 0.018 260);
+  --color-surface-900: oklch(0.17 0.018 260);
+  --color-surface-950: oklch(0.13 0.018 260);
+
+  --color-accent-400: oklch(0.72 0.19 250);
+  --color-accent-500: oklch(0.64 0.22 250);
+  --color-accent-600: oklch(0.55 0.22 250);
+
+  --color-healthy: oklch(0.72 0.19 160);
+  --color-warning: oklch(0.78 0.16 80);
+  --color-danger: oklch(0.65 0.22 25);
+  --color-info: oklch(0.72 0.15 230);
+}
+
+/* ─── Base ────────────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-surface-950);
+  color: var(--color-surface-100);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ─── Custom Scrollbar ────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-600);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-surface-500);
+}
+
+/* ─── Animations ──────────────────────────────────────────────────── */
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px 0 rgba(52, 211, 153, 0.3); }
+  50% { box-shadow: 0 0 20px 4px rgba(52, 211, 153, 0.5); }
+}
+
+@keyframes fail-glow {
+  0%, 100% { box-shadow: 0 0 8px 0 rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 20px 4px rgba(239, 68, 68, 0.5); }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-fail-glow {
+  animation: fail-glow 1.5s ease-in-out infinite;
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+/* ─── Glass Card ──────────────────────────────────────────────────── */
+
+.glass-card {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0.01) 100%
+  );
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+}
+
+.glass-card-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card-hover:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+  transform: translateY(-2px);
+}
+
+/* ─── Log Terminal ────────────────────────────────────────────────── */
+
+.log-terminal {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.log-entry {
+  padding: 2px 12px;
+  border-left: 3px solid transparent;
+  transition: background 0.15s;
+}
+
+.log-entry:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.log-entry.log-info { border-left-color: var(--color-info); }
+.log-entry.log-warning { border-left-color: var(--color-warning); }
+.log-entry.log-error { border-left-color: var(--color-danger); }
+.log-entry.log-debug { border-left-color: var(--color-surface-500); }
+.log-entry.log-success { border-left-color: var(--color-healthy); }
+
+/* ─── Topology Lines ─────────────────────────────────────────────── */
+
+.topology-line {
+  stroke: var(--color-accent-500);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  opacity: 0.5;
+  transition: opacity 0.3s;
+}
+
+.topology-line.active {
+  opacity: 0.9;
+  stroke-dasharray: none;
+  stroke-width: 2;
+}
+
+/* ─── Status Dot ──────────────────────────────────────────────────── */
+
+@keyframes status-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.8); opacity: 0; }
+}
+
+.status-dot-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-dot-ping {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  animation: status-pulse 2s ease-in-out infinite;
+}
+

@@ -1,0 +1,870 @@
+PROJECT NAME
+Distributed-training-
+
+PURPOSE
+This repository is a distributed training prototype with two major subsystems:
+
+1. A Python backend-side training prototype
+- launches multi-machine PyTorch Distributed Data Parallel (DDP) training
+- assumes Tailscale is used to connect participating machines
+- trains a simple CIFAR-10 classifier
+- includes a CLI launcher and a GPU diagnostics script
+
+2. A React dashboard frontend
+- visualizes cluster topology, training metrics, controls, and logs
+- currently uses local simulation/mock data rather than a real backend socket/server
+
+This means the repo is no longer "just three Python scripts." It is now a mixed Python + TypeScript project with:
+- a real distributed training runtime in Python
+- a separate dashboard UI in React/Vite
+
+
+TOP-LEVEL REPOSITORY STRUCTURE
+1. launch.py
+- interactive launcher for training
+
+2. train.py
+- core distributed training runtime
+
+3. gpu_test.py
+- GPU / environment diagnostics
+
+4. requirements.txt
+- Python dependencies
+
+5. PROJECT_FOR_LLM.txt
+- this file
+
+6. dashboard/
+- React + TypeScript + Vite dashboard app
+
+7. data/
+- local dataset storage for CIFAR-10 downloads and related training data
+
+8. .venv/
+- Python virtual environment
+
+9. .git/
+- git metadata
+
+10. .gitignore
+- currently ignores `data/` and `__pycache__/`
+
+
+HIGH-LEVEL SYSTEM ARCHITECTURE
+The repository should be understood as four layers:
+
+1. Training orchestration layer
+- `launch.py`
+- collects user input, chooses backend, checks connectivity, and dispatches into training
+
+2. Distributed training engine
+- `train.py`
+- establishes the PyTorch distributed process group
+- loads data
+- trains the model
+- synchronizes processes
+- saves checkpoints
+
+3. Diagnostics layer
+- `gpu_test.py`
+- validates CUDA / GPU / WSL / TensorFlow visibility
+
+4. Dashboard presentation layer
+- `dashboard/`
+- simulates and displays cluster state, training metrics, logs, and command configuration
+
+
+IMPORTANT REALITY CHECK
+The Python training runtime and the React dashboard are not actually wired together yet.
+
+Current state:
+- `train.py` is real and executable distributed training code
+- the dashboard is a frontend-only simulation/UI prototype
+- the dashboard has a hook named `useWebSocket`, but it does not open a real WebSocket connection
+- instead, it uses locally generated mock data and a timer-driven simulation loop
+
+This is one of the most important facts for any LLM or engineer reading the repository.
+
+
+PYTHON SUBSYSTEM OVERVIEW
+The Python side is a small distributed PyTorch training demo intended for multiple machines connected by Tailscale.
+
+Main user path:
+1. User runs `python launch.py`
+2. Launcher determines master vs worker
+3. Launcher detects GPU availability and picks `nccl` or `gloo`
+4. Launcher gathers runtime parameters
+5. Launcher checks worker connectivity to the master when relevant
+6. Launcher `exec`s into `train.py`
+7. `train.py` initializes PyTorch distributed
+8. Each process loads CIFAR-10
+9. Each process gets a `DistributedSampler`
+10. Each process builds the same model and wraps it in DDP
+11. Each process trains on its own shard
+12. Rank 0 logs summaries and saves checkpoints
+
+
+TRAINING NETWORK MODEL
+The distributed training code assumes:
+- one process per machine
+- rank 0 is the master
+- workers connect to the master using `MASTER_ADDR` and `MASTER_PORT`
+- Tailscale provides reachability between machines
+
+Important implications:
+- this is not a `torchrun`-style local multi-process launcher
+- the networking assumptions are oriented around multi-machine communication
+- Tailscale IPs are central to the expected deployment workflow
+
+
+DISTRIBUTED BACKENDS
+Supported backend modes in practice:
+
+1. `nccl`
+- intended for GPU training
+- selected automatically by `launch.py` when CUDA is available
+
+2. `gloo`
+- CPU fallback
+- used when CUDA is unavailable or when explicitly chosen
+
+3. `env://`
+- default initialization method
+
+4. `tcp://`
+- code path exists, but the way it is passed is questionable/incomplete
+
+5. `file://<path>`
+- supports a file-based rendezvous store
+
+
+DATA PIPELINE
+Actual training data in `train.py` is CIFAR-10.
+
+Processing flow:
+1. `transforms.ToTensor()`
+2. `transforms.Normalize(...)` with CIFAR-10 statistics
+3. `datasets.CIFAR10(..., train=True, download=True, ...)`
+4. `DistributedSampler(...)`
+5. `DataLoader(...)`
+
+Implications:
+- each process may download or access the dataset locally
+- there is no validation dataset
+- there is no test/evaluation loop
+
+
+MODEL PIPELINE
+The model is `SimpleNet` in `train.py`.
+
+Actual architecture:
+1. flatten image input
+2. linear `32*32*3 -> 256`
+3. ReLU
+4. Dropout(0.2)
+5. linear `256 -> 128`
+6. ReLU
+7. linear `128 -> 10`
+
+Important note:
+- the docstring says "Small CNN for CIFAR-10"
+- this is incorrect
+- the model is an MLP, not a CNN
+
+
+CHECKPOINT PIPELINE
+Only rank 0 saves checkpoints.
+
+Saved contents:
+- epoch
+- model state from `model.module.state_dict()`
+- optimizer state
+- loss
+
+Checkpoint behavior:
+- save directory is created if missing
+- file name pattern is `checkpoint_epoch{epoch}.pt`
+
+There is also a `load_checkpoint(...)` helper, but resume is not integrated into `main()`.
+
+
+GPU / ENVIRONMENT DIAGNOSTICS
+`gpu_test.py` is a script-style utility that checks:
+- `nvidia-smi`
+- PyTorch CUDA visibility
+- TensorFlow GPU visibility
+- cuDNN status
+- WSL environment detection
+
+This file is useful for troubleshooting but is not part of the actual training pipeline.
+
+
+DASHBOARD SUBSYSTEM OVERVIEW
+The dashboard is a separate frontend application under `dashboard/`.
+
+Technology stack:
+- React
+- TypeScript
+- Vite
+- Recharts
+- lucide-react
+- Tailwind CSS v4 tooling
+
+Primary purpose:
+- display a distributed training control/monitoring interface
+- simulate cluster topology
+- simulate training metrics
+- simulate logs and node health changes
+
+Important constraint:
+- there is no real backend API or socket integration yet
+- all displayed dashboard data currently comes from local mock/simulation code
+
+
+DASHBOARD FILE STRUCTURE
+Key files:
+
+1. `dashboard/package.json`
+- frontend dependencies and scripts
+
+2. `dashboard/src/main.tsx`
+- React bootstrap
+
+3. `dashboard/src/App.tsx`
+- top-level page router/state holder
+
+4. `dashboard/src/hooks/useWebSocket.ts`
+- main data/state hook for the UI
+- despite the name, it is not a real WebSocket client
+
+5. `dashboard/src/types/index.ts`
+- shared TypeScript interfaces for nodes, training, logs, and configuration
+
+6. `dashboard/src/data/mockData.ts`
+- simulation engine and mock data generators
+
+7. `dashboard/src/components/layout/Sidebar.tsx`
+- navigation and connection/training status sidebar
+
+8. `dashboard/src/components/cluster/ClusterView.tsx`
+- cluster overview page
+
+9. `dashboard/src/components/cluster/NodeCard.tsx`
+- per-node detail card for cluster page
+
+10. `dashboard/src/components/metrics/TrainingDashboard.tsx`
+- metrics dashboard page
+
+11. `dashboard/src/components/control/ControlPanel.tsx`
+- configurable training form + command preview
+
+12. `dashboard/src/components/logs/LogsPanel.tsx`
+- live log viewer with filters/search/pause
+
+13. `dashboard/src/index.css`
+- global dashboard styling and visual system
+
+14. `dashboard/public/*`
+- frontend assets such as icons and favicon
+
+
+DASHBOARD APPLICATION FLOW
+The frontend flow is:
+
+1. `main.tsx` renders `App` under `StrictMode`
+2. `App.tsx` holds a `currentPage` state
+3. `App.tsx` calls `useWebSocket()`
+4. `useWebSocket()` owns all simulated cluster/training/log state
+5. `Sidebar` switches between pages:
+- cluster
+- training
+- control
+- logs
+6. Each page reads from the shared hook output
+
+This means the dashboard is effectively a single-page simulated control center.
+
+
+DASHBOARD DATA FLOW
+The core data flow is:
+
+1. `useWebSocket()` initializes state with:
+- `createInitialNodes()`
+- `createInitialTrainingState()`
+
+2. A timer simulates connection establishment after mount
+- `isConnected` becomes `true` after ~800ms
+
+3. A recurring interval ticks every 1.5 seconds
+- if training is active, `simulateTick(...)` updates nodes, metrics, and logs
+
+4. `startTraining()`:
+- resets the simulation
+- marks training as running
+- changes all nodes to `training`
+- appends startup banner log lines
+
+5. `stopTraining()`:
+- stops simulated training
+- sets nodes back to `idle`
+- appends an interruption log
+
+6. `resetCluster()`:
+- restores initial node/training state and clears logs
+
+
+MOCK/SIMULATION ENGINE
+`dashboard/src/data/mockData.ts` is the simulated backend.
+
+It provides:
+- initial node creation
+- initial training state creation
+- synthetic loss generation
+- synthetic accuracy generation
+- synthetic log generation
+- periodic simulation ticks
+- occasional warning/error/retry states
+
+The simulated cluster currently assumes 4 nodes:
+- rank 0: master
+- ranks 1-3: workers
+
+It also simulates:
+- GPU memory usage
+- utilization
+- temperature
+- throughput
+- retrying/failure states for some ranks
+- checkpoint messages
+- epoch summaries
+
+Important implication:
+- dashboard numbers are plausible-looking demo data, not actual training metrics from `train.py`
+
+
+SHARED DASHBOARD TYPES
+The main frontend domain types in `dashboard/src/types/index.ts` are:
+
+1. `NodeStatus`
+- `'connected' | 'training' | 'retrying' | 'failed' | 'idle'`
+
+2. `GpuInfo`
+- GPU name, total memory, used memory, utilization, temperature
+
+3. `ClusterNode`
+- rank, IP, hostname, status, master flag, GPU info, backend, epoch/batch progress, throughput, heartbeat, retries
+
+4. `EpochMetrics`
+- epoch, loss, accuracy, timestamp
+
+5. `PerNodeMetrics`
+- rank, loss, accuracy, throughput, batches completed
+
+6. `TrainingState`
+- run state, current epoch, total epochs, global loss/accuracy, elapsed time, history, per-node metrics
+
+7. `LogLevel`
+- `info | warning | error | debug | success`
+
+8. `LogEntry`
+- log id, timestamp, rank, level, message
+
+9. `TrainingConfig`
+- frontend form state for role, rank, world size, address, port, backend, epochs, batch size, learning rate, init method
+
+10. `ClusterState`
+- nodes + training + logs + connection timestamp
+
+
+FRONTEND PAGE RESPONSIBILITIES
+
+1. `App.tsx`
+- chooses which page to render
+- owns simple `currentPage` state
+- consumes `useWebSocket()`
+- passes hook state into page components
+
+2. `Sidebar.tsx`
+- renders navigation buttons
+- supports collapsed/expanded sidebar state
+- shows simulated connection status
+- shows whether training is active
+
+3. `ClusterView.tsx`
+- shows cluster-level aggregate stats
+- renders a simple topology visualization
+- displays node cards for each rank
+
+4. `TrainingDashboard.tsx`
+- shows KPI cards
+- charts loss vs epoch
+- charts accuracy vs epoch
+- charts per-node throughput
+- shows a per-node metrics table
+- uses mock `generateLoss()` and `generateAccuracy()` helpers for per-rank chart lines
+
+5. `ControlPanel.tsx`
+- provides editable config form
+- validates fields such as rank, world size, port, epochs, batch size, learning rate
+- shows a generated `python train.py ...` command preview
+- start/stop actions only affect the local simulation via callbacks
+
+6. `LogsPanel.tsx`
+- displays log stream
+- supports rank filter
+- supports level filter
+- supports text search
+- supports pause/resume auto-scroll behavior
+
+7. `NodeCard.tsx`
+- displays per-node details such as status, device/backend, and resource/heartbeat metrics
+- acts as the detailed visual unit for the cluster overview
+
+
+FRONTEND VS BACKEND BOUNDARY
+Current relationship between the dashboard and Python code:
+
+What is real:
+- the training CLI and distributed engine in Python
+- the dashboard UI code and UX
+
+What is not wired together:
+- the dashboard does not start Python processes
+- the dashboard does not talk to `train.py`
+- there is no HTTP server
+- there is no WebSocket server
+- there is no telemetry export from `train.py`
+- there is no log streaming bridge
+
+The dashboard currently only simulates what a future control plane might look like.
+
+
+FUNCTION-BY-FUNCTION REFERENCE
+
+FILE: launch.py
+
+1. `detect_cuda_gpus()`
+- imports torch if available
+- checks CUDA availability
+- returns `(has_gpu, message)`
+- used for backend selection in the launcher
+
+2. `check_tailscale()`
+- runs `tailscale ip -4`
+- returns detected IPv4 string or `None`
+
+3. `check_dns_resolution(host)`
+- checks whether a host/IP resolves via `socket.gethostbyname`
+- prints error details on failure
+
+4. `check_port_open(host, port, timeout=3)`
+- attempts TCP connection to host/port
+- returns `(True, None)` on success
+- returns `(False, error_message)` on failure
+
+5. `diagnose_connection_issue(host, port)`
+- prints troubleshooting steps
+- checks DNS
+- checks port reachability
+- prints OS-specific firewall hints
+- prints Tailscale guidance
+- prints master-process verification tips
+
+6. `main()`
+- interactive entry point
+- determines master vs worker
+- gathers user config
+- chooses backend
+- does worker pre-flight connectivity checks
+- builds `train.py` command
+- calls `os.execv(...)`
+
+
+FILE: train.py
+
+1. `parse_args()`
+- defines CLI arguments:
+  - rank
+  - world-size
+  - master-addr
+  - master-port
+  - backend
+  - epochs
+  - batch-size
+  - lr
+  - data-dir
+  - save-dir
+  - log-interval
+  - ifname
+  - init-timeout-min
+  - init-retries
+  - retry-delay
+  - init-method
+
+2. `setup(rank, world_size, master_addr, master_port, backend, timeout_min, init_retries, retry_delay, ifname, init_method)`
+- chooses/init config for `file://`, `tcp://`, or `env://`
+- sets `MASTER_ADDR` and `MASTER_PORT`
+- optionally sets socket interface environment variables
+- retries worker init on transient failures
+- calls `dist.init_process_group(...)`
+- prints targeted diagnostics for several failure classes
+
+3. `cleanup()`
+- destroys the process group
+
+4. `SimpleNet(nn.Module)`
+- model definition
+
+Methods:
+- `__init__()`: builds the sequential MLP
+- `forward(x)`: applies `self.net`
+
+5. `save_checkpoint(model, optimizer, epoch, loss, save_dir, rank)`
+- rank-0-only checkpoint writer
+
+6. `load_checkpoint(model, optimizer, path, device)`
+- loads checkpoint into `model.module` and optimizer
+- returns stored epoch
+- currently unused by `main()`
+
+7. `train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch, rank, log_interval)`
+- sets training mode
+- updates sampler epoch
+- loops over batches
+- does forward/backward/optimizer steps
+- updates local metrics
+- updates tqdm progress
+- returns average loss and accuracy
+
+8. `main()`
+- validates `world_size` and `rank`
+- selects device/backend
+- calls `setup(...)`
+- loads CIFAR-10
+- builds sampler and dataloader
+- builds model/DDP/loss/optimizer/scheduler
+- loops through epochs
+- synchronizes with `dist.barrier()`
+- rank 0 logs summary and saves checkpoint
+- handles cleanup and exceptions
+
+
+FILE: gpu_test.py
+
+1. `separator(title)`
+- prints a visual section separator
+
+Top-level execution sections:
+
+2. NVIDIA-SMI check
+- runs `nvidia-smi`
+
+3. PyTorch GPU check
+- prints torch and CUDA details
+- runs a small GPU tensor test if CUDA is available
+
+4. TensorFlow GPU check
+- prints TensorFlow version
+- lists visible GPUs
+- detects one NumPy ABI mismatch case
+
+5. CUDA / cuDNN info
+- prints cuDNN enabled/version if CUDA is available
+
+6. WSL check
+- reads `/proc/version`
+- infers WSL vs native Linux
+
+7. Summary
+- prints overall GPU availability interpretation
+
+
+FILE: dashboard/src/main.tsx
+
+1. top-level bootstrap
+- creates React root
+- renders `<App />` under `<StrictMode>`
+
+
+FILE: dashboard/src/App.tsx
+
+1. `App()`
+- owns `currentPage` state
+- calls `useWebSocket()`
+- renders one of:
+  - `ClusterView`
+  - `TrainingDashboard`
+  - `ControlPanel`
+  - `LogsPanel`
+- renders `Sidebar`
+
+
+FILE: dashboard/src/hooks/useWebSocket.ts
+
+1. `useWebSocket()`
+- central dashboard state hook
+- initializes nodes/training/logs
+- simulates connection after mount
+- runs timer loop for training simulation
+- exposes:
+  - `nodes`
+  - `training`
+  - `logs`
+  - `isConnected`
+  - `isRunning`
+  - `startTraining()`
+  - `stopTraining()`
+  - `resetCluster()`
+
+2. `startTraining()`
+- resets simulation
+- sets training to active
+- marks nodes as training
+- appends startup logs
+
+3. `stopTraining()`
+- stops simulation
+- returns nodes to idle
+- appends interruption log
+
+4. `resetCluster()`
+- resets all state back to initial values
+
+
+FILE: dashboard/src/data/mockData.ts
+
+1. `createInitialNodes()`
+- returns initial 4-node cluster data
+
+2. `createInitialTrainingState()`
+- returns default training-state object
+
+3. `generateLoss(epoch, rank)`
+- synthetic loss curve generator
+
+4. `generateAccuracy(epoch, rank)`
+- synthetic accuracy curve generator
+
+5. `generateLogEntry(rank, epoch)`
+- returns a randomized log entry from template groups
+
+6. `generateErrorLog(rank)`
+- returns one simulated error log
+
+7. `resetSimulation()`
+- resets module-level simulation counters
+
+8. `simulateTick(prevNodes, prevTraining, isRunning)`
+- advances training batches/epochs
+- updates nodes, per-node metrics, global metrics, history, and logs
+- simulates retries/failures for some ranks
+- returns new dashboard state
+
+
+FILE: dashboard/src/components/layout/Sidebar.tsx
+
+1. `Sidebar({ currentPage, onPageChange, isConnected, isRunning })`
+- manages local collapsed/expanded state
+- renders navigation
+- shows connection/training status indicators
+
+
+FILE: dashboard/src/components/cluster/ClusterView.tsx
+
+1. `ClusterView({ nodes })`
+- computes healthy/warning/failed counts
+- identifies master and workers
+- renders topology summary
+- renders aggregate stat cards
+- renders node cards
+
+2. `StatCard(...)`
+- local helper for aggregate metric cards
+
+
+FILE: dashboard/src/components/metrics/TrainingDashboard.tsx
+
+1. `TrainingDashboard({ training })`
+- formats elapsed time
+- builds chart data from epoch history
+- synthesizes per-rank chart lines using mock helpers
+- renders KPI cards
+- renders loss/accuracy charts
+- renders throughput chart
+- renders per-node metrics table
+
+2. `KpiCard(...)`
+- local helper for metric summary cards
+
+3. `EmptyChart(...)`
+- local helper placeholder for no-data states
+
+
+FILE: dashboard/src/components/control/ControlPanel.tsx
+
+1. `ControlPanel({ isRunning, onStart, onStop })`
+- owns form config state
+- owns validation error state
+- validates inputs
+- renders config sections
+- renders command preview
+- triggers callbacks to start/stop local simulation
+
+2. `validate()`
+- checks world size, rank, master address, port, epochs, batch size, learning rate
+
+3. `handleStart()`
+- validates then calls `onStart()`
+
+4. `update(key, value)`
+- updates config state
+- auto-sets rank when role changes
+- clears field-specific errors
+
+5. `FormField(...)`
+- reusable local input component
+
+
+FILE: dashboard/src/components/logs/LogsPanel.tsx
+
+1. `LogsPanel({ logs })`
+- owns UI filter/search/pause state
+- filters logs by rank/level/search term
+- auto-scrolls when not paused
+- formats timestamps
+- renders toolbar and terminal view
+
+2. `handleScroll()`
+- disables auto-follow when user scrolls away from bottom
+
+3. `formatTime(ts)`
+- formats timestamps with milliseconds
+
+
+DEPENDENCIES AND THEIR ROLE
+
+Python:
+1. `torch`
+- main deep learning and DDP framework
+
+2. `torchvision`
+- CIFAR-10 dataset and transforms
+
+3. `tensorflow`
+- only used in diagnostics, not training
+
+4. `numpy`
+- general numerical dependency
+
+5. `Pillow`
+- image support for torchvision datasets
+
+6. `nvidia-nccl-cu11`
+- NCCL-related GPU communication dependency
+
+Frontend:
+7. `react`
+- UI runtime
+
+8. `react-dom`
+- browser rendering
+
+9. `recharts`
+- charts for training metrics
+
+10. `lucide-react`
+- icons
+
+11. `vite`
+- frontend build/dev tool
+
+12. `typescript`
+- static typing for frontend code
+
+13. `tailwindcss`
+- styling/tooling
+
+
+KNOWN INCONSISTENCIES AND LIMITATIONS
+These are important:
+
+1. Python docs mismatch: MNIST vs CIFAR-10
+- some text still says MNIST
+- actual dataset is CIFAR-10
+
+2. Model docs mismatch: CNN vs MLP
+- `SimpleNet` docstring says CNN
+- implementation is an MLP
+
+3. Dashboard/backend disconnect
+- dashboard is not connected to the Python runtime
+- no real socket/API bridge exists
+
+4. `useWebSocket` is a misnomer right now
+- it simulates state locally
+- it does not use a WebSocket
+
+5. `dashboard/README.md` is still the default Vite template
+- it does not describe the real dashboard application
+
+6. `tcp://` training init path may be incomplete
+- code likely needs a real full TCP init URL if that mode is used seriously
+
+7. Checkpoint resume is unfinished
+- helper exists
+- main training flow does not expose it
+
+8. No validation/evaluation loop in Python training
+
+9. No automated test suite
+- neither backend nor frontend has project-specific tests here
+
+10. Encoding artifacts exist in source strings
+- some visual characters appear garbled
+
+11. Dashboard assumptions are fixed/demo-oriented
+- 4 nodes are assumed in simulation
+- some charts hardcode rank handling patterns
+
+
+MENTAL MODEL FOR AN LLM
+The best compact mental model is:
+
+"This repo contains a real Python-based multi-machine PyTorch DDP training prototype and a separate React dashboard prototype that simulates what a monitoring/control plane for that training system could look like."
+
+Or more concretely:
+- `launch.py` = interactive runtime launcher
+- `train.py` = real distributed training engine
+- `gpu_test.py` = environment diagnostics
+- `dashboard/` = simulated UI control/observability layer
+
+
+WHAT IS CORE VS PROTOTYPE
+Core executable training functionality:
+- distributed process-group setup
+- CIFAR-10 loading
+- DDP model training
+- barriers and checkpoint saving
+
+Prototype/demo functionality:
+- dashboard simulation state
+- dashboard log stream
+- simulated topology health
+- control panel actions as frontend-only interactions
+
+
+LIKELY NEXT EVOLUTION PATH
+Natural future steps for this repo would be:
+- connect dashboard to a real backend service
+- stream real logs and metrics from `train.py`
+- add validation/evaluation metrics
+- add resume-from-checkpoint CLI support
+- fix docs and naming mismatches
+- modularize Python code
+- add tests
+- replace simulated `useWebSocket` with real transport logic
+
+
+BOTTOM-LINE SUMMARY
+This project is now a hybrid repository. The Python side is a real distributed PyTorch training scaffold for multi-machine CIFAR-10 training over Tailscale. The frontend side is a polished but currently simulated dashboard for cluster monitoring, training metrics, controls, and logs. Any LLM working on this repo should treat those as separate but conceptually related subsystems, and should not assume the dashboard is already integrated with the training runtime.
