@@ -154,18 +154,34 @@ class SimpleNet(nn.Module):
     """Small CNN for CIFAR-10 — swap this out for your own model."""
     def __init__(self):
         super().__init__()
-        self.net = nn.Sequential(
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2),
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2),
+        )
+        self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(32 * 32 * 3, 256),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Linear(128, 10),
+            nn.Linear(128 * 8 * 8, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(256, 10),
         )
 
     def forward(self, x):
-        return self.net(x)
+        x = self.features(x)
+        return self.classifier(x)
 
 
 # ─── Checkpoint helpers ───────────────────────────────────────────────────────
@@ -195,9 +211,9 @@ def load_checkpoint(model, optimizer, path, device):
 
 # ─── Training loop ───────────────────────────────────────────────────────────
 
-def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch, rank, log_interval):
+def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch_idx, rank, log_interval):
     model.train()
-    sampler.set_epoch(epoch)  # Ensures different shuffling per epoch across all nodes
+    sampler.set_epoch(epoch_idx)  # Ensures different shuffling per epoch across all nodes
 
     total_loss    = 0.0
     correct       = 0
@@ -206,7 +222,7 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch, r
 
     # Disable tqdm when stdout is not a terminal (e.g. launched via subprocess)
     headless = not sys.stderr.isatty()
-    progress = tqdm(loader, desc=f"Rank {rank} Epoch {epoch+1}",
+    progress = tqdm(loader, desc=f"Rank {rank} Epoch {epoch_idx + 1}",
                     position=rank, leave=True, disable=headless)
 
     for batch_idx, (data, target) in enumerate(progress):
@@ -240,7 +256,7 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch, r
             metric = {
                 "type": "batch",
                 "rank": rank,
-                "epoch": epoch + 1,
+                "epoch": epoch_idx + 1,
                 "batch": batch_idx + 1,
                 "total_batches": len(loader),
                 "loss": round(avg_loss, 4),
@@ -332,7 +348,10 @@ def main():
 
         # ── Model ─────────────────────────────────────────────────────────────────
         model   = SimpleNet().to(device)
-        model   = DDP(model)   # wraps model; gradients are averaged across all nodes automatically
+        if device.type == "cuda":
+            model = DDP(model, device_ids=[device.index])
+        else:
+            model = DDP(model)
         loss_fn = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5)
@@ -353,6 +372,15 @@ def main():
             )
             scheduler.step()
 
+            global_loss = float(loss)
+            global_acc = float(acc)
+            if dist.is_initialized():
+                metrics = torch.tensor([loss, acc], device=device, dtype=torch.float32)
+                dist.all_reduce(metrics, op=dist.ReduceOp.SUM)
+                metrics /= args.world_size
+                global_loss = metrics[0].item()
+                global_acc = metrics[1].item()
+
             # Barrier: all nodes wait here before moving to next epoch
             try:
                 dist.barrier()
@@ -364,20 +392,20 @@ def main():
             if args.rank == 0:
                 elapsed = time.time() - t0
                 print(
-                    f"[Epoch {epoch+1}/{args.epochs}] Loss: {loss:.4f} | "
-                    f"Acc: {acc:.1f}% | Time: {elapsed:.1f}s\n"
+                    f"[Epoch {epoch+1}/{args.epochs}] Loss: {global_loss:.4f} | "
+                    f"Acc: {global_acc:.1f}% | Time: {elapsed:.1f}s\n"
                 )
                 metric = {
                     "type": "epoch",
                     "rank": 0,
                     "epoch": epoch + 1,
                     "total_epochs": args.epochs,
-                    "loss": round(loss, 4),
-                    "acc": round(acc, 1),
+                    "loss": round(global_loss, 4),
+                    "acc": round(global_acc, 1),
                     "elapsed": round(elapsed, 1),
                 }
                 print(f"METRIC: {json.dumps(metric)}", flush=True)
-                save_checkpoint(model, optimizer, epoch + 1, loss, args.save_dir, args.rank)
+                save_checkpoint(model, optimizer, epoch + 1, global_loss, args.save_dir, args.rank)
 
         if args.rank == 0:
             print("Training complete!")
