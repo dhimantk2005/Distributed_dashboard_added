@@ -43,7 +43,7 @@ def parse_args():
     p.add_argument("--data-dir",    type=str,   default="./data",       help="Where to download MNIST")
     p.add_argument("--save-dir",    type=str,   default="./checkpoints",help="Where to save model checkpoints")
     p.add_argument("--log-interval",type=int,   default=50,             help="Log every N batches")
-    p.add_argument("--ifname", type=str, default="",                  help="Network interface for distributed comms (e.g., tailscale0, eth0)")
+    p.add_argument("--ifname", type=str, default="tailscale0",                  help="Network interface for distributed comms (e.g., tailscale0, eth0)")
     p.add_argument("--init-timeout-min", type=int, default=5,            help="Process-group init timeout in minutes")
     p.add_argument("--init-retries", type=int, default=8,                help="Worker retry attempts for transient init failures")
     p.add_argument("--retry-delay", type=float, default=3.0,             help="Seconds to wait between worker init retries")
@@ -210,6 +210,8 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch, r
                     position=rank, leave=True, disable=headless)
 
     for batch_idx, (data, target) in enumerate(progress):
+        if device.type == "cuda":
+            torch.cuda.synchronize()
         batch_t0 = time.time()
 
         data, target = data.to(device), target.to(device)
@@ -220,6 +222,8 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch, r
         loss.backward()
         optimizer.step()
 
+        if device.type == "cuda":
+            torch.cuda.synchronize()
         batch_elapsed   = time.time() - batch_t0
         last_throughput = data.size(0) / max(batch_elapsed, 1e-9)
 
