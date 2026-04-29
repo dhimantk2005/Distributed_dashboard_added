@@ -26,7 +26,7 @@ export default function App() {
           />
         );
       case 'logs':
-        return <LogsPanel logs={ws.logs} />;
+        return <LogsPanel logs={ws.logs} terminalLines={ws.terminalLines} />;
       case 'diagnostics':
         return (
           <DiagnosticsPanel

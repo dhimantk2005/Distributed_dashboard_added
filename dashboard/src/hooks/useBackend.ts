@@ -12,6 +12,7 @@ import type {
   ClusterNode,
   TrainingState,
   LogEntry,
+  TerminalLine,
   TrainingConfig,
   DiagnosticsResult,
 } from '../types';
@@ -21,6 +22,7 @@ import type {
 const BACKEND_HTTP = 'http://localhost:8000';
 const BACKEND_WS   = 'ws://localhost:8000/ws';
 const MAX_LOGS     = 500;
+const MAX_TERMINAL = 1500;
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -49,6 +51,7 @@ export interface UseBackendReturn {
   nodes:               ClusterNode[];
   training:            TrainingState;
   logs:                LogEntry[];
+  terminalLines:       TerminalLine[];
   isConnected:         boolean;
   isRunning:           boolean;
   connectionError:     string | null;
@@ -66,6 +69,7 @@ export function useBackend(): UseBackendReturn {
   const [nodes,               setNodes]               = useState<ClusterNode[]>([]);
   const [training,            setTraining]            = useState<TrainingState>(makeInitialTraining);
   const [logs,                setLogs]                = useState<LogEntry[]>([]);
+  const [terminalLines,       setTerminalLines]       = useState<TerminalLine[]>([]);
   const [isConnected,         setIsConnected]         = useState(false);
   const [isRunning,           setIsRunning]           = useState(false);
   const [connectionError,     setConnectionError]     = useState<string | null>(null);
@@ -82,11 +86,11 @@ export function useBackend(): UseBackendReturn {
   // the latest version (avoids stale closure over state setters).
 
   const stateSetters = useRef({
-    setNodes, setTraining, setLogs,
+    setNodes, setTraining, setLogs, setTerminalLines,
     setIsRunning, setDiagnostics, setIsDiagnosticsRunning,
   });
   stateSetters.current = {
-    setNodes, setTraining, setLogs,
+    setNodes, setTraining, setLogs, setTerminalLines,
     setIsRunning, setDiagnostics, setIsDiagnosticsRunning,
   };
 
@@ -96,7 +100,7 @@ export function useBackend(): UseBackendReturn {
     catch { return; }
 
     const {
-      setNodes, setTraining, setLogs,
+      setNodes, setTraining, setLogs, setTerminalLines,
       setIsRunning, setDiagnostics, setIsDiagnosticsRunning,
     } = stateSetters.current;
 
@@ -106,9 +110,11 @@ export function useBackend(): UseBackendReturn {
         const n  = (msg.nodes    as ClusterNode[] | undefined)  ?? [];
         const t  = (msg.training as TrainingState | undefined)  ?? makeInitialTraining();
         const l  = (msg.logs     as LogEntry[]    | undefined)  ?? [];
+        const tl = (msg.terminalLines as TerminalLine[] | undefined) ?? [];
         setNodes(n);
         setTraining(t);
         setLogs(l.slice(-MAX_LOGS));
+        setTerminalLines(tl.slice(-MAX_TERMINAL));
         setIsRunning(t.isRunning);
         break;
       }
@@ -126,6 +132,14 @@ export function useBackend(): UseBackendReturn {
         const entry = msg.entry as LogEntry | undefined;
         if (entry) {
           setLogs((prev) => [...prev, entry].slice(-MAX_LOGS));
+        }
+        break;
+      }
+
+      case 'terminal': {
+        const entry = msg.entry as TerminalLine | undefined;
+        if (entry) {
+          setTerminalLines((prev) => [...prev, entry].slice(-MAX_TERMINAL));
         }
         break;
       }
@@ -260,6 +274,7 @@ export function useBackend(): UseBackendReturn {
     nodes,
     training,
     logs,
+    terminalLines,
     isConnected,
     isRunning,
     connectionError,

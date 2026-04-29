@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 
 
 MAX_LOGS = 500
+MAX_TERMINAL_LINES = 1500
 
 
 def _get_local_hostname() -> str:
@@ -57,11 +58,13 @@ class AppState:
         self.nodes: Dict[int, dict] = {}
         self.training: dict = _make_initial_training()
         self.logs: List[dict] = []
+        self.terminal_lines: List[dict] = []
         self.processes: Dict[int, Any] = {}   # rank -> subprocess.Popen
         self.is_running: bool = False
         self.job_id: Optional[str] = None
         self.diagnostics_result: Optional[dict] = None
         self._log_counter: int = 0
+        self._terminal_counter: int = 0
         self._job_start_time: float = 0
 
     # ── Logs ──────────────────────────────────────────────────────────
@@ -70,6 +73,11 @@ class AppState:
         """Must be called with lock held."""
         self._log_counter += 1
         return f"log-{self._log_counter}"
+
+    def _next_terminal_id(self) -> str:
+        """Must be called with lock held."""
+        self._terminal_counter += 1
+        return f"term-{self._terminal_counter}"
 
     def add_log(self, entry: dict) -> dict:
         """Add a log entry (assigns id), return the stored entry."""
@@ -81,6 +89,16 @@ class AppState:
                 self.logs = self.logs[-MAX_LOGS:]
         return entry
 
+    def add_terminal_line(self, entry: dict) -> dict:
+        """Add a raw terminal line (assigns id), return the stored entry."""
+        with self._lock:
+            entry = dict(entry)
+            entry["id"] = self._next_terminal_id()
+            self.terminal_lines.append(entry)
+            if len(self.terminal_lines) > MAX_TERMINAL_LINES:
+                self.terminal_lines = self.terminal_lines[-MAX_TERMINAL_LINES:]
+        return entry
+
     # ── Snapshots ─────────────────────────────────────────────────────
 
     def get_snapshot(self) -> dict:
@@ -90,6 +108,7 @@ class AppState:
                 "nodes": list(self.nodes.values()),
                 "training": dict(self.training),
                 "logs": list(self.logs),
+                "terminalLines": list(self.terminal_lines),
                 "isRunning": self.is_running,
             }
 
@@ -103,6 +122,7 @@ class AppState:
             self.training = _make_initial_training()
             self.training["isRunning"] = True
             self.training["totalEpochs"] = config.get("epochs", 1)
+            self.terminal_lines = []
 
             world_size = config.get("worldSize", 1)
             local_rank = config.get("rank", 0)
@@ -208,6 +228,7 @@ class AppState:
             self.nodes = {}
             self.training = _make_initial_training()
             self.logs = []
+            self.terminal_lines = []
             self.is_running = False
             self.job_id = None
 

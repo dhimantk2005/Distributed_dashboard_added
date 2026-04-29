@@ -67,6 +67,13 @@ export interface LogEntry {
   message: string;
 }
 
+export interface TerminalLine {
+  id: string;
+  timestamp: number;
+  rank: number;
+  message: string;
+}
+
 // ─── Control Panel ───────────────────────────────────────────────────
 
 export interface TrainingConfig {

@@ -168,6 +168,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "nodes": snapshot["nodes"],
             "training": snapshot["training"],
             "logs": snapshot["logs"],
+            "terminalLines": snapshot["terminalLines"],
             "timestamp": int(time.time() * 1000),
         })
 

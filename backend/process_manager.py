@@ -38,6 +38,20 @@ def _read_stdout(proc: subprocess.Popen, rank: int) -> None:
             if not raw_line:
                 break
 
+            cleaned = raw_line.replace("\r", "").rstrip("\n")
+            if cleaned.strip():
+                if len(cleaned) > 2000:
+                    cleaned = cleaned[:2000] + "..."
+                term_entry = app_state.add_terminal_line({
+                    "timestamp": int(time.time() * 1000),
+                    "rank": rank,
+                    "message": cleaned,
+                })
+                ws_manager.broadcast_sync({
+                    "type": "terminal",
+                    "entry": term_entry,
+                })
+
             log_entry, metric_data = parse_line(raw_line)
 
             # ── Structured log ─────────────────────────────────────
