@@ -19,6 +19,7 @@ import {
   Layers,
   Gauge,
   BarChart3,
+  Cpu,
 } from 'lucide-react';
 
 interface TrainingDashboardProps {
@@ -29,6 +30,10 @@ const RANK_COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444'];
 const GLOBAL_COLOR = '#34d399';
 
 export default function TrainingDashboard({ training }: TrainingDashboardProps) {
+
+  const lastEpoch = training.epochHistory.length > 0
+    ? training.epochHistory[training.epochHistory.length - 1]
+    : null;
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -95,6 +100,28 @@ export default function TrainingDashboard({ training }: TrainingDashboardProps) 
           label="Elapsed Time"
           value={formatTime(training.elapsedTime)}
           color="text-amber-400"
+        />
+      </div>
+
+      {/* Performance KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <KpiCard
+          icon={<Gauge size={18} />}
+          label="Global Throughput"
+          value={lastEpoch?.throughput ? `${lastEpoch.throughput.toFixed(0)} s/s` : '—'}
+          color="text-accent-400"
+        />
+        <KpiCard
+          icon={<Clock size={18} />}
+          label="Avg Batch Time"
+          value={lastEpoch?.avgBatchTime ? `${lastEpoch.avgBatchTime.toFixed(4)}s` : '—'}
+          color="text-surface-300"
+        />
+        <KpiCard
+          icon={<Cpu size={18} />}
+          label="Max GPU Mem"
+          value={lastEpoch?.maxGpuMemMb ? `${lastEpoch.maxGpuMemMb.toFixed(0)} MB` : '—'}
+          color="text-emerald-400"
         />
       </div>
 

@@ -34,6 +34,9 @@ export interface EpochMetrics {
   loss: number;
   accuracy: number;
   timestamp: number;
+  throughput?: number;      // samples/sec (global)
+  avgBatchTime?: number;    // seconds
+  maxGpuMemMb?: number | null;
 }
 
 export interface PerNodeMetrics {
