@@ -233,15 +233,17 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch, r
             acc      = 100.0 * correct / total
             progress.set_postfix(loss=f"{avg_loss:.4f}", acc=f"{acc:.1f}%")
 
-            # Emit structured metric for the dashboard
-            print(
-                f"METRIC: {json.dumps({'type':'batch','rank':rank,"
-                f"'epoch':epoch+1,'batch':batch_idx+1,"
-                f"'total_batches':len(loader),"
-                f"'loss':round(avg_loss,4),'acc':round(acc,1),"
-                f"'throughput':round(last_throughput,1)})}",
-                flush=True,
-            )
+            metric = {
+                "type": "batch",
+                "rank": rank,
+                "epoch": epoch + 1,
+                "batch": batch_idx + 1,
+                "total_batches": len(loader),
+                "loss": round(avg_loss, 4),
+                "acc": round(acc, 1),
+                "throughput": round(last_throughput, 1),
+            }
+            print(f"METRIC: {json.dumps(metric)}", flush=True)
 
     return total_loss / len(loader), 100.0 * correct / total
 
@@ -361,14 +363,16 @@ def main():
                     f"[Epoch {epoch+1}/{args.epochs}] Loss: {loss:.4f} | "
                     f"Acc: {acc:.1f}% | Time: {elapsed:.1f}s\n"
                 )
-                # Emit epoch-level structured metric for the dashboard
-                print(
-                    f"METRIC: {json.dumps({'type':'epoch','rank':0,"
-                    f"'epoch':epoch+1,'total_epochs':args.epochs,"
-                    f"'loss':round(loss,4),'acc':round(acc,1),"
-                    f"'elapsed':round(elapsed,1)})}",
-                    flush=True,
-                )
+                metric = {
+                    "type": "epoch",
+                    "rank": 0,
+                    "epoch": epoch + 1,
+                    "total_epochs": args.epochs,
+                    "loss": round(loss, 4),
+                    "acc": round(acc, 1),
+                    "elapsed": round(elapsed, 1),
+                }
+                print(f"METRIC: {json.dumps(metric)}", flush=True)
                 save_checkpoint(model, optimizer, epoch + 1, loss, args.save_dir, args.rank)
 
         if args.rank == 0:
