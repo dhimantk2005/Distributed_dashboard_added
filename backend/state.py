@@ -195,6 +195,9 @@ class AppState:
         loss: float,
         acc: float,
         elapsed: float,
+        throughput: float | None = None,
+        avg_batch_time: float | None = None,
+        max_gpu_mem_mb: float | None = None,
     ) -> None:
         with self._lock:
             if rank in self.nodes:
@@ -204,12 +207,19 @@ class AppState:
             self.training["globalLoss"] = round(loss, 4)
             self.training["globalAccuracy"] = round(acc, 1)
             self.training["elapsedTime"] = elapsed
-            self.training["epochHistory"].append({
+            entry = {
                 "epoch": epoch,
                 "loss": round(loss, 4),
                 "accuracy": round(acc, 1),
                 "timestamp": int(time.time() * 1000),
-            })
+            }
+            if throughput is not None:
+                entry["throughput"] = round(throughput, 1)
+            if avg_batch_time is not None:
+                entry["avgBatchTime"] = round(avg_batch_time, 4)
+            if max_gpu_mem_mb is not None:
+                entry["maxGpuMemMb"] = round(max_gpu_mem_mb, 1)
+            self.training["epochHistory"].append(entry)
 
     def mark_node_status(self, rank: int, status: str) -> None:
         with self._lock:

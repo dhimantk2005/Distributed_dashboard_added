@@ -219,6 +219,8 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch_id
     correct       = 0
     total         = 0
     last_throughput = 0.0
+    batch_time_sum = 0.0
+    batch_count = 0
 
     # Disable tqdm when stdout is not a terminal (e.g. launched via subprocess)
     headless = not sys.stderr.isatty()
@@ -242,6 +244,8 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch_id
             torch.cuda.synchronize()
         batch_elapsed   = time.time() - batch_t0
         last_throughput = data.size(0) / max(batch_elapsed, 1e-9)
+        batch_time_sum += batch_elapsed
+        batch_count += 1
 
         total_loss += loss.item()
         pred        = output.argmax(dim=1)
@@ -265,7 +269,10 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch_id
             }
             print(f"METRIC: {json.dumps(metric)}", flush=True)
 
-    return total_loss / len(loader), 100.0 * correct / total
+    avg_loss = total_loss / len(loader)
+    avg_acc = 100.0 * correct / total
+    total_samples = total
+    return avg_loss, avg_acc, total_samples, batch_time_sum, batch_count
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -366,7 +373,9 @@ def main():
 
         for epoch in range(args.epochs):
             t0 = time.time()
-            loss, acc = train_one_epoch(
+            if device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats(device)
+            loss, acc, epoch_samples, batch_time_sum, batch_count = train_one_epoch(
                 model, loader, sampler, optimizer, loss_fn,
                 device, epoch, args.rank, args.log_interval
             )
@@ -374,12 +383,30 @@ def main():
 
             global_loss = float(loss)
             global_acc = float(acc)
+            global_samples = float(epoch_samples)
+            global_batch_time = float(batch_time_sum)
+            global_batch_count = float(batch_count)
             if dist.is_initialized():
-                metrics = torch.tensor([loss, acc], device=device, dtype=torch.float32)
+                metrics = torch.tensor(
+                    [loss, acc, epoch_samples, batch_time_sum, batch_count],
+                    device=device,
+                    dtype=torch.float32,
+                )
                 dist.all_reduce(metrics, op=dist.ReduceOp.SUM)
-                metrics /= args.world_size
-                global_loss = metrics[0].item()
-                global_acc = metrics[1].item()
+                global_loss = metrics[0].item() / args.world_size
+                global_acc = metrics[1].item() / args.world_size
+                global_samples = metrics[2].item()
+                global_batch_time = metrics[3].item()
+                global_batch_count = metrics[4].item()
+
+            global_throughput = (
+                global_samples / max(global_batch_time, 1e-9)
+                if global_samples > 0 else 0.0
+            )
+            avg_batch_time = (
+                global_batch_time / max(global_batch_count, 1.0)
+                if global_batch_count > 0 else 0.0
+            )
 
             # Barrier: all nodes wait here before moving to next epoch
             try:
@@ -395,6 +422,9 @@ def main():
                     f"[Epoch {epoch+1}/{args.epochs}] Loss: {global_loss:.4f} | "
                     f"Acc: {global_acc:.1f}% | Time: {elapsed:.1f}s\n"
                 )
+                max_gpu_mem_mb = None
+                if device.type == "cuda":
+                    max_gpu_mem_mb = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
                 metric = {
                     "type": "epoch",
                     "rank": 0,
@@ -403,6 +433,9 @@ def main():
                     "loss": round(global_loss, 4),
                     "acc": round(global_acc, 1),
                     "elapsed": round(elapsed, 1),
+                    "throughput": round(global_throughput, 1),
+                    "avg_batch_time": round(avg_batch_time, 4),
+                    "max_gpu_mem_mb": round(max_gpu_mem_mb, 1) if max_gpu_mem_mb is not None else None,
                 }
                 print(f"METRIC: {json.dumps(metric)}", flush=True)
                 save_checkpoint(model, optimizer, epoch + 1, global_loss, args.save_dir, args.rank)

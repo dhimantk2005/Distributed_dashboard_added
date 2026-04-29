@@ -84,6 +84,9 @@ def _read_stdout(proc: subprocess.Popen, rank: int) -> None:
                         loss=metric_data.get("loss", 0.0),
                         acc=metric_data.get("acc", 0.0),
                         elapsed=metric_data.get("elapsed", 0.0),
+                        throughput=metric_data.get("throughput"),
+                        avg_batch_time=metric_data.get("avg_batch_time"),
+                        max_gpu_mem_mb=metric_data.get("max_gpu_mem_mb"),
                     )
 
                 # Broadcast updated cluster + training state
