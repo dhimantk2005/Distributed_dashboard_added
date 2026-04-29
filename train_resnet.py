@@ -48,7 +48,16 @@ def parse_args():
     p.add_argument("--init-retries", type=int, default=8,                help="Worker retry attempts for transient init failures")
     p.add_argument("--retry-delay", type=float, default=3.0,             help="Seconds to wait between worker init retries")
     p.add_argument("--init-method", type=str, default="env://",         help="Init method: 'env://', 'tcp://' or 'file://<path>'")
+    p.add_argument("--metrics-file", type=str, default="metrics.jsonl", help="Write METRIC lines to this file (per process)")
     return p.parse_args()
+
+
+def emit_metric(metric: dict, metrics_file: str) -> None:
+    line = json.dumps(metric)
+    print(f"METRIC: {line}", flush=True)
+    if metrics_file:
+        with open(metrics_file, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
 
 
 # ─── Setup / Teardown ────────────────────────────────────────────────────────
@@ -256,7 +265,7 @@ def load_checkpoint(model, optimizer, path, device):
 
 # ─── Training loop ───────────────────────────────────────────────────────────
 
-def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch_idx, rank, log_interval):
+def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch_idx, rank, log_interval, metrics_file):
     model.train()
     sampler.set_epoch(epoch_idx)  # Ensures different shuffling per epoch across all nodes
 
@@ -312,7 +321,7 @@ def train_one_epoch(model, loader, sampler, optimizer, loss_fn, device, epoch_id
                 "acc": round(acc, 1),
                 "throughput": round(last_throughput, 1),
             }
-            print(f"METRIC: {json.dumps(metric)}", flush=True)
+            emit_metric(metric, metrics_file)
 
     avg_loss = total_loss / len(loader)
     avg_acc = 100.0 * correct / total
@@ -422,7 +431,7 @@ def main():
                 torch.cuda.reset_peak_memory_stats(device)
             loss, acc, epoch_samples, batch_time_sum, batch_count = train_one_epoch(
                 model, loader, sampler, optimizer, loss_fn,
-                device, epoch, args.rank, args.log_interval
+                device, epoch, args.rank, args.log_interval, args.metrics_file
             )
             scheduler.step()
 
@@ -482,7 +491,7 @@ def main():
                     "avg_batch_time": round(avg_batch_time, 4),
                     "max_gpu_mem_mb": round(max_gpu_mem_mb, 1) if max_gpu_mem_mb is not None else None,
                 }
-                print(f"METRIC: {json.dumps(metric)}", flush=True)
+                emit_metric(metric, args.metrics_file)
                 save_checkpoint(model, optimizer, epoch + 1, global_loss, args.save_dir, args.rank)
 
         if args.rank == 0:

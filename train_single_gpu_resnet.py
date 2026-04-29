@@ -28,7 +28,16 @@ def parse_args():
     p.add_argument("--data-dir",    type=str,   default="./data",       help="Where to download CIFAR-10")
     p.add_argument("--save-dir",    type=str,   default="./checkpoints",help="Where to save model checkpoints")
     p.add_argument("--log-interval",type=int,   default=50,             help="Log every N batches")
+    p.add_argument("--metrics-file", type=str, default="metrics.jsonl", help="Write METRIC lines to this file")
     return p.parse_args()
+
+
+def emit_metric(metric: dict, metrics_file: str) -> None:
+    line = json.dumps(metric)
+    print(f"METRIC: {line}", flush=True)
+    if metrics_file:
+        with open(metrics_file, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
 
 
 # ─── Model ─────────────────────────────────────────────────────────────────--
@@ -128,7 +137,7 @@ def save_checkpoint(model, optimizer, epoch, loss, save_dir):
 
 # ─── Training loop ─────────────────────────────────────────────────----------
 
-def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch_idx, log_interval):
+def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch_idx, log_interval, metrics_file):
     model.train()
 
     total_loss = 0.0
@@ -181,7 +190,7 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, epoch_idx, log_in
                 "acc": round(acc, 1),
                 "throughput": round(last_throughput, 1),
             }
-            print(f"METRIC: {json.dumps(metric)}", flush=True)
+            emit_metric(metric, metrics_file)
 
     avg_loss = total_loss / len(loader)
     avg_acc = 100.0 * correct / total
@@ -230,7 +239,7 @@ def main():
             torch.cuda.reset_peak_memory_stats(device)
         loss, acc, epoch_samples, batch_time_sum, batch_count = train_one_epoch(
             model, loader, optimizer, loss_fn,
-            device, epoch, args.log_interval
+            device, epoch, args.log_interval, args.metrics_file
         )
         scheduler.step()
 
@@ -263,7 +272,7 @@ def main():
             "avg_batch_time": round(avg_batch_time, 4),
             "max_gpu_mem_mb": round(max_gpu_mem_mb, 1) if max_gpu_mem_mb is not None else None,
         }
-        print(f"METRIC: {json.dumps(metric)}", flush=True)
+        emit_metric(metric, args.metrics_file)
         save_checkpoint(model, optimizer, epoch + 1, loss, args.save_dir)
 
     print("Training complete!")
